@@ -1,0 +1,51 @@
+name: Merge xfail branch
+outputs:
+  need_xfail:
+    description: |
+      A string "yes" if xfail is required; "no" otherwise.
+    value: ${{ steps.check-xfail-needed.outputs.need_xfail }}
+runs:
+  using: "composite"
+  steps:
+    - name: Try to merge xfail branch
+      shell: bash
+      run: |
+        git_fetch_branch() {
+            refspec="refs/heads/$1:refs/remotes/origin/$1"
+            git fetch --unshallow origin "$refspec" || git fetch origin "$refspec"
+        }
+        set -ex
+        xfailbranch=xfail/"${GITHUB_HEAD_REF#refs/heads/}"
+        if git_fetch_branch "$xfailbranch"
+        then
+            git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
+            git config --global user.name "$GITHUB_ACTOR"
+            git merge "origin/$xfailbranch"
+        else
+            echo "No branch named $xfailbranch"
+        fi
+      # Note: `$GITHUB_REF` contains something like "refs/pull/26/merge".
+      # It seems `$GITHUB_HEAD_REF` contains the correct branch name.
+      # See also GitHub context `github.head_ref`:
+      # https://help.github.com/en/actions/automating-your-workflow-with-github-actions/contexts-and-expression-syntax-for-github-actions#github-context
+
+    - run: git log --graph --oneline -n10
+      shell: bash
+    - run: git show --no-patch --format='format:%H %T'
+      shell: bash
+    - run: echo $GITHUB_SHA
+      shell: bash
+    - run: git diff $GITHUB_SHA
+      shell: bash
+
+    - name: Check if xfail test is required
+      id: check-xfail-needed
+      shell: bash
+      run: |
+        xfailbranch=xfail/"${GITHUB_HEAD_REF#refs/heads/}"
+        if git rev-parse "refs/remotes/origin/$xfailbranch" -- > /dev/null
+        then
+            echo "::set-output name=need_xfail::yes"
+        else
+            echo "::set-output name=need_xfail::no"
+        fi
